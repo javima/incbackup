@@ -1,0 +1,203 @@
+****************************************************
+INCBACKUP
+****************************************************
+
+#     Copyright (C) 2016 Javier Martínez Baena
+#     Email: jbaena@ugr.es
+#
+#     This program is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+# 
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+# 
+#     You should have received a copy of the GNU General Public License
+#     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+****************************************************
+
+1.- Descripción
+2.- Ficheros incluidos en el paquete
+3.- Instalación
+4.- Uso
+5.- Ejemplos de ficheros de configuración
+
+****************************************************
+1.- DESCRIPCIÓN
+
+Bash script para la automatización del proceso de copias de seguridad incrementales mediante rsync. Esta herramienta hace copias con rsync entre sistemas de ficheros montados en una misma máquina y permite automatizar el monjate y desmontaje de los mismos. Se mantienen copias incrementales, cada una en una carpeta que se numera como 1, 2, 3, ...
+
+El número de copias incrementales puede no tener límite establecido (hasta que haya espacio en el disco) pero también se puede limitar. Si se impone un límite, cuando este se alcance, se borrará la copia más antigua y se sustituirá por la nueva manteniendo en todo caso el orden de numeración 1, 2, 3, ... siendo la número 1 siempre la más antigua. Además, siempre existirá un enlace "last" que apunta a la última copia realizada.
+
+El script también realiza, de forma transparente, la reparación de la numeración de las copias: detecta huecos en la numeración y los repara. Además, si se modifica el límite de copias indicando un límite menor que el número de copias ya existentes, borra las más antiguas y renumera de nuevo de la forma esperada.
+
+En general, es posible modificar el fichero de configuración aun existiendo ya copias de seguridad más antiguas hechas de manera que los cambios afetan a las copias futuras permaneciendo las antiguas intactas (hasta que se borren de acuerdo al límite de copias establecido).
+
+Las copias incrementales se hacen con enlaces duros a la copia previa para evitar el consumo excesivo de disco.
+
+La forma de uso es muy simple: basta con ejecutar el script con un único argumento, que será un fichero bash en el que se define la configuración del backup. De esta forma se pueden mantener diversos ficheros de configuración para realizar diferentes copias de forma independiente.
+
+En las explicaciones que siguen se asume que el paquete reside en /home/usuario/bin/incbackup
+
+****************************************************
+2.- Ficheros que componen el paquete:
+
+LICENSE                  Términos de la licencia GNU GPL 3.0
+LEEME.txt                Documentación en castellano
+README.txt               Documentación en inglés
+incbackup.sh             Bash script principal
+incbackup_profile.sh     Editable: Contiene las líneas para añadir el PATH de ejecución en una shell Bash
+incbackup_crondaily      Editable: Esquema de un posible fichero para incluir en /etc/cron.daily y programar los backups
+incbackup_configXXX.sh   Editable: Ejemplos de configuración
+incbackup_excludeXXX.sh  Editable: Ejemplos de ficheros con listas de exclusión para rsync
+
+****************************************************
+3.- INSTALACIÓN
+
+Este paquete consta de un único script que se puede usar sin instalar. Sin embargo, es muy útil usarlo de forma que sea accesible a todo el sistema y poder automatizar las copias de seguridad. Para ello debe hacer lo siguiente:
+
+1.- Incluir la ruta en el PATH para poder ejecutarlo (opcional):
+    - Editar el fichero incbackup_profile.sh y modificar la ruta del script
+    - Copiar incbackup_profile.sh en /etc/profile.d
+    Para que el PATH se modifique también para el usuario root, debe incluir el PATH en /etc/bashrc
+    
+2.- Modificar el sistema cron para programar copias automáticas (opcional):
+    Se ilustra esto con ejemplos:
+    
+    - Opción 1: modificar crontab
+        Copia diaria a las 13:30
+          30 13 * * * root nice -n 19 incbackup.sh incbackup_config1.sh
+        Si no se ha añadido la ruta al PATH de ejecución entonces debe poner estro otro:
+          30 13 * * * root nice -n 19 /home/usuario/bin/incbackup/incbackup.sh /home/usuario/bin/incbackup/incbackup_config1.sh
+
+    - Opción 2: añadir script de ejecución a cron.daily
+        Editar incbackup_crondaily y cambiar la ruta/nombre del fichero de configuración
+        Darle permisos de ejecución: 
+          chmod a+x incbackup_daily
+        Copiar incbackup_daily a /etc/cron.daily/
+    
+    Con la primera opción, si el ordenador está apagado en el momento de la copia programada, esta no se hace. Con la segunda opción, si el ordenador está apagado durante uno o más días, se garantiza que se realiza la copia al reiniciar la máquina
+
+****************************************************
+4.- USO
+
+Para su ejecución se usa un único argumento, que es el fichero de configuración. En el fichero de configuración se especifican:
+
+1.- Destino de la copia de seguridad (un único destino)
+    Este será una carpeta que se montará en el host. Para ello se usan estas variables:
+      DESTINO_FS   Nombre de la raíz del sistema de ficheros en donde se alojará la copia
+      DESTINO_DIR  Carpeta, dentro de DESTINO_FS, en donde se alojará la copia
+    Es decir, una vez montado el sistema de ficheros, la copia se realizará en la ruta DESTINO_FS/DESTINO_DIR
+    DESTINO_FS puede ser una unidad local o en red. El script comprobará que ya está montada y, si no lo está, realizará el montaje.
+    Para montar la unidad de destino se podrá especificar si se hace uso del fichero /etc/fstab o si, por el contrario, se identifica la unidad mediante una etiqueta de volumen. La variable DESTINO_ETQ valdrá FSTAB si se hace el montaje con la configuración de /etc/fstab. En caso de que tenga otro valor se entenderá que es el nombre del volumen a montar.
+    En algunos casos es posible que rsync no pueda mantener el propietario y grupo de los archivos en la carpeta de destino (por ejemplo al hacer un montaje con SSHFS si no se es root en el servidor de backup). En ese caso defina DESTINO_OWNER=NO y en el caso de que rsync pueda mantener dichos atributos indique DESTINO_OWNER=YES. Ambas opciones funcionanarán igual, pero se evitarán mensajes de aviso de rsync indicando que no puede hacer chown sobre los ficheros.
+
+2.- Orígenes de la copia (múltiples orígenes)
+      ORIGEN   Es una lista de carpetas de las que hacer copia de seguridad
+    Cada entrada de la lista contiene:
+      - la ruta de la que hacer backup
+      - MOUNT/LOCAL. MOUNT indica que el sistema de ficheros debe ser montado a partir de la entrada de /etc/fstab. En caso de indicar LOCAL no se intenta el montaje (dando por hecho que el sistema debe estar montado). Esto facilita el backup de unidades remotas montadas en red en el host
+      - un fichero con la lista de exclusiones que debe tener en cuenta rsync (usando el formato de la opción --exclude-from de rsync). Si este fichero no existe entonces no se excluye nada. Es obligatorio poner algo en el nombre del fichero de exclusiones (en el caso de que no se desee excluir nada se puede poner, por ejemplo, SINEXCLUSION)
+ 
+3.- Número máximo de copias de seguridad incrementales 
+      MAXCOPIAS
+    En caso de que valga 0 no hay límite de copias
+    Cuando se supera el número máximo de copias se hace una rotación de los directorios 1, 2, 3, ... conservando siempre los más recientes y eliminando la copia más antigua.
+    
+4.- Fichero con el log del proceso de backup
+      LOGFILE
+    Se recomienda usar este valor para mantener el log en la misma carpeta de la copia de seguridad:
+      LOGFILE=$DESTINO_FS/$DESTINO_DIR/log.txt
+
+****************************************************
+EJEMPLO DE CONFIGURACIÓN 1      
+
+#!/bin/bash
+
+# El backup se hará en la unidad /backup y, dentro de esta, en la carpeta incbackup/ (es decir, en /backup/incbackup)
+DESTINO_FS=/backup
+DESTINO_DIR=incbackup
+
+# Además, la unidad de backup se debe montar de acuerdo a la configuración de /etc/fstab
+# En este caso se trata de un sistema de ficheros Ext4 por lo que rsync puede hacer chown sin problemas (si se ejecuta como root)
+DESTINO_ETQ=FSTAB   # El punto de montaje está en fstab
+DESTINO_OWNER=YES   # YES=el FS conserva owner/group  (NO=No lo conserva, p.ej. SSHFS)
+
+# Directorios de los que se deseamos hacer copia de seguridad:
+# Se hará copia de /etc y /root (ambos ya montados en el sistema)
+# También se hará copia del /home aunque se excluirán algunos ficheros/carpetas
+# Se hará copia de seguridad de varias carpetas que deben ser montadas previamente (si no lo estuvieran).
+# (Se trata de unidades de red montadas en el sistema local)
+ORIGEN=(
+          /etc                     LOCAL   SINEXCLUSION
+          /root                    LOCAL   SINEXCLUSION
+          /home                    LOCAL   /home/usuario/bin/incbackup/incbackup_excludehome.txt
+          /mnt/remoteserver1       MOUNT   SINEXCLUSION
+          /mnt/webserver           MOUNT   SINEXCLUSION
+       )
+
+# No se establece límite en el número de copias de seguridad
+MAXCOPIAS=0
+
+# Fichero en el que almacenar logs del proceso
+LOGFILE=$DESTINO_FS/$DESTINO_DIR/log.txt
+
+****************************************************
+EJEMPLO DE CONFIGURACIÓN 2
+
+#!/bin/bash
+
+# El backup se hará en la unidad /mnt/wd4tb y, dentro de esta, en la carpeta incbackup/ (es decir, en /mnt/wd4tb/incbackup)
+DESTINO_FS=/mnt/wd4tb
+DESTINO_DIR=incbackup
+
+# La unidad de estino se debe montar en base a su etiqueta de volumen
+DESTINO_ETQ=WD4TB   # Esta es la etiqueta de volumen
+DESTINO_OWNER=YES   # YES=el FS conserva owner/group  (NO=No lo conserva, p.ej. SSHFS)
+
+# Directorios de los que se deseamos hacer copia de seguridad
+ORIGEN=(
+          /etc                     LOCAL   SINEXCLUSION
+          /root                    LOCAL   SINEXCLUSION
+          /home                    LOCAL   /home/usuario/bin/incbackup/incbackup_excludehome.txt
+          /mnt/remoteserver1       MOUNT   SINEXCLUSION
+          /mnt/webserver           MOUNT   SINEXCLUSION
+       )
+
+# Máximo de copias incrementales. 0 para no poner límite
+MAXCOPIAS=0
+
+# Fichero en el que almacenar logs del proceso
+LOGFILE=$DESTINO_FS/$DESTINO_DIR/log.txt
+
+****************************************************
+EJEMPLO DE CONFIGURACIÓN 3
+
+#!/bin/bash
+
+# El backup se hará en la unidad /mnt/backupserver y, dentro de esta, en la carpeta incbackup/ (es decir, en /mnt/backupserver/incbackup)
+DESTINO_FS=/mnt/backupserver
+DESTINO_DIR=incbackup
+
+# La unidad de estino se debe montar en base a /etc/fstab
+DESTINO_ETQ=FSTAB   # El punto de montaje está en fstab
+DESTINO_OWNER=NO    # El sistema remoto se monta por SSHFS
+
+# Directorios de los que se deseamos hacer copia de seguridad
+ORIGEN=(
+          /etc                     LOCAL   SINEXCLUSION
+          /root                    LOCAL   SINEXCLUSION
+          /home                    LOCAL   /home/usuario/bin/incbackup/incbackup_excludehome.txt
+          /mnt/remoteserver1       MOUNT   SINEXCLUSION
+          /mnt/webserver           MOUNT   SINEXCLUSION
+       )
+
+# Máximo de copias incrementales: 10
+MAXCOPIAS=10
+
+# Fichero en el que almacenar logs del proceso
+LOGFILE=$DESTINO_FS/$DESTINO_DIR/log.txt

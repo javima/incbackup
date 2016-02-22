@@ -1,0 +1,2 @@
+#!/bin/bash
+/home/usuario/bin/incbackup/incbackup.sh /home/usuario/bin/incbackup/incbackup_config1.sh
